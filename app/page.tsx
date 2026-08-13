@@ -30,7 +30,8 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import type { FormEvent, LucideIcon } from "react";
+import type { LucideIcon } from "lucide-react";
+import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Tab = "today" | "courses" | "calendar" | "materials";

@@ -32,6 +32,12 @@ npm run lint
 npm test
 ```
 
+For a Vercel-compatible production build:
+
+```bash
+npm run build:vercel
+```
+
 ## Product notes
 
 The current release is a polished front-end MVP with realistic first-year sample data. Personal changes are saved only in the current browser. Cloud sync, university LMS integration, file uploads, authentication, and real notifications are intentionally left for a later connected-data release.

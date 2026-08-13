@@ -2,10 +2,8 @@
 
 import {
   AlertTriangle,
-  Atom,
   Bell,
   BookOpen,
-  Box,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -22,6 +20,7 @@ import {
   Home,
   Layers3,
   MapPin,
+  Pencil,
   Plus,
   Search,
   ShieldAlert,
@@ -36,6 +35,15 @@ import type { LucideIcon } from "lucide-react";
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AuthScreen } from "@/components/auth-screen";
+import { CourseEditorSheet, courseIconMap } from "@/components/course-editor-sheet";
+import {
+  courseDraftToRow,
+  courseFromRow,
+  defaultCourseSeeds,
+  type Course,
+  type CourseDraft,
+  type StudentCourseRow,
+} from "@/lib/courses";
 import { createClient } from "@/lib/supabase/client";
 
 type Tab = "today" | "courses" | "calendar" | "materials";
@@ -49,22 +57,10 @@ type StudentIdentity = {
   displayName: string;
 };
 
-type Course = {
-  code: string;
-  name: string;
-  shortName: string;
-  tone: string;
-  icon: LucideIcon;
-  progress: number;
-  schedule: string;
-  room: string;
-  next: string;
-};
-
 type PlannerItem = {
   id: string;
   kind: ItemKind;
-  courseCode: string;
+  courseRef: string;
   title: string;
   dateLabel: string;
   timeLabel: string;
@@ -82,86 +78,17 @@ type PlannerItem = {
 type Material = {
   id: string;
   title: string;
-  courseCode: string;
+  courseRef: string;
   meta: string;
   type: "PDF" | "SLIDES" | "LINK" | "SHEET";
   detail: string;
 };
 
-const courses: Course[] = [
-  {
-    code: "MECH 101",
-    name: "Introduction to Mechanical Design",
-    shortName: "Mechanical Design",
-    tone: "blue",
-    icon: Wrench,
-    progress: 38,
-    schedule: "Tue & Thu · 10:00 AM",
-    room: "Engineering 210",
-    next: "Design brief · Sep 22",
-  },
-  {
-    code: "ENGR 105",
-    name: "Engineering Graphics & CAD",
-    shortName: "Graphics & CAD",
-    tone: "purple",
-    icon: Box,
-    progress: 46,
-    schedule: "Mon & Wed · 1:00 PM",
-    room: "CAD Studio 04",
-    next: "Assembly drawing · Tomorrow",
-  },
-  {
-    code: "MATH 101",
-    name: "Engineering Calculus I",
-    shortName: "Calculus I",
-    tone: "orange",
-    icon: Target,
-    progress: 42,
-    schedule: "Mon, Wed & Fri · 11:00 AM",
-    room: "Science Hall 118",
-    next: "Problem set 4 · Sep 20",
-  },
-  {
-    code: "PHYS 101",
-    name: "Physics I: Mechanics",
-    shortName: "Physics: Mechanics",
-    tone: "teal",
-    icon: Atom,
-    progress: 34,
-    schedule: "Tue & Thu · 9:00 AM",
-    room: "Newton Hall 106",
-    next: "Dynamics quiz · Sep 21",
-  },
-  {
-    code: "PHYS 103L",
-    name: "Physics Laboratory I",
-    shortName: "Physics Lab",
-    tone: "red",
-    icon: FlaskConical,
-    progress: 30,
-    schedule: "Thu · 2:00 PM",
-    room: "Lab Wing B12",
-    next: "Pre-lab check · Today",
-  },
-  {
-    code: "CS 110",
-    name: "Computational Methods",
-    shortName: "Computational Methods",
-    tone: "yellow",
-    icon: Layers3,
-    progress: 41,
-    schedule: "Fri · 2:00 PM",
-    room: "Technology 302",
-    next: "Python worksheet · Sep 23",
-  },
-];
-
 const baseItems: PlannerItem[] = [
   {
     id: "cad-assembly",
     kind: "assignment",
-    courseCode: "ENGR 105",
+    courseRef: "engr-105",
     title: "Gearbox assembly drawing",
     dateLabel: "Fri, Sep 18",
     timeLabel: "11:59 PM",
@@ -177,7 +104,7 @@ const baseItems: PlannerItem[] = [
   {
     id: "dynamics-quiz",
     kind: "test",
-    courseCode: "PHYS 101",
+    courseRef: "phys-101",
     title: "Dynamics quiz",
     dateLabel: "Mon, Sep 21",
     timeLabel: "9:00 AM",
@@ -193,7 +120,7 @@ const baseItems: PlannerItem[] = [
   {
     id: "calculus-set",
     kind: "assignment",
-    courseCode: "MATH 101",
+    courseRef: "math-101",
     title: "Problem set 4 · Derivatives",
     dateLabel: "Sun, Sep 20",
     timeLabel: "6:00 PM",
@@ -209,7 +136,7 @@ const baseItems: PlannerItem[] = [
   {
     id: "lab-collision",
     kind: "lab",
-    courseCode: "PHYS 103L",
+    courseRef: "phys-103l",
     title: "Lab 3 · Collisions & momentum",
     dateLabel: "Thu, Sep 17",
     timeLabel: "2:00–4:00 PM",
@@ -226,7 +153,7 @@ const baseItems: PlannerItem[] = [
   {
     id: "midterm-mech",
     kind: "exam",
-    courseCode: "MECH 101",
+    courseRef: "mech-101",
     title: "Midterm exam",
     dateLabel: "Wed, Oct 7",
     timeLabel: "1:30–3:00 PM",
@@ -243,7 +170,7 @@ const baseItems: PlannerItem[] = [
   {
     id: "python-sheet",
     kind: "assignment",
-    courseCode: "CS 110",
+    courseRef: "cs-110",
     title: "Python worksheet · Arrays",
     dateLabel: "Wed, Sep 23",
     timeLabel: "5:00 PM",
@@ -262,7 +189,7 @@ const materials: Material[] = [
   {
     id: "lab-manual",
     title: "Lab 3 · Collisions manual",
-    courseCode: "PHYS 103L",
+    courseRef: "phys-103l",
     meta: "PDF · 2.4 MB · Week 4",
     type: "PDF",
     detail: "Required before today’s lab",
@@ -270,7 +197,7 @@ const materials: Material[] = [
   {
     id: "cad-checklist",
     title: "Assembly drawing checklist",
-    courseCode: "ENGR 105",
+    courseRef: "engr-105",
     meta: "PDF · 380 KB · Assignment 2",
     type: "PDF",
     detail: "Submission requirements & rubric",
@@ -278,7 +205,7 @@ const materials: Material[] = [
   {
     id: "physics-formulas",
     title: "Mechanics formula sheet",
-    courseCode: "PHYS 101",
+    courseRef: "phys-101",
     meta: "SHEET · 1 page · Weeks 1–5",
     type: "SHEET",
     detail: "Your editable study copy",
@@ -286,7 +213,7 @@ const materials: Material[] = [
   {
     id: "calculus-slides",
     title: "Lecture 9 · Chain rule",
-    courseCode: "MATH 101",
+    courseRef: "math-101",
     meta: "SLIDES · 34 pages · Week 4",
     type: "SLIDES",
     detail: "Posted by Dr. Elena Ruiz",
@@ -294,7 +221,7 @@ const materials: Material[] = [
   {
     id: "python-reference",
     title: "NumPy quick reference",
-    courseCode: "CS 110",
+    courseRef: "cs-110",
     meta: "LINK · External resource",
     type: "LINK",
     detail: "Recommended reference",
@@ -322,8 +249,8 @@ const materialIcon: Record<Material["type"], LucideIcon> = {
   SHEET: ClipboardCheck,
 };
 
-function courseFor(code: string) {
-  return courses.find((course) => course.code === code) ?? courses[0];
+function courseFor(courses: Course[], courseRef: string) {
+  return courses.find((course) => course.ref === courseRef);
 }
 
 function ProgressBar({ value, label }: { value: number; label: string }) {
@@ -341,18 +268,20 @@ function ProgressBar({ value, label }: { value: number; label: string }) {
   );
 }
 
-function CourseBadge({ code }: { code: string }) {
-  const course = courseFor(code);
-  return <span className={`course-badge ${course.tone}`}>{code}</span>;
+function CourseBadge({ courseRef, courses }: { courseRef: string; courses: Course[] }) {
+  const course = courseFor(courses, courseRef);
+  return <span className={`course-badge ${course?.tone ?? "blue"}`}>{course?.code ?? "Course removed"}</span>;
 }
 
 function DetailSheet({
   item,
+  courses,
   completed,
   onClose,
   onToggleComplete,
 }: {
   item: PlannerItem;
+  courses: Course[];
   completed: boolean;
   onClose: () => void;
   onToggleComplete: () => void;
@@ -385,7 +314,7 @@ function DetailSheet({
             <X size={20} />
           </button>
         </div>
-        <CourseBadge code={item.courseCode} />
+        <CourseBadge courseRef={item.courseRef} courses={courses} />
         <h2 id="detail-title">{item.title}</h2>
         <p className="sheet-description">{item.description}</p>
 
@@ -440,7 +369,7 @@ function DetailSheet({
   );
 }
 
-function QuickAddSheet({ onClose, onAdd }: { onClose: () => void; onAdd: (item: PlannerItem) => void }) {
+function QuickAddSheet({ courses, onClose, onAdd }: { courses: Course[]; onClose: () => void; onAdd: (item: PlannerItem) => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const [kind, setKind] = useState<ItemKind>("assignment");
 
@@ -470,7 +399,7 @@ function QuickAddSheet({ onClose, onAdd }: { onClose: () => void; onAdd: (item: 
     onAdd({
       id: `custom-${Date.now()}`,
       kind,
-      courseCode: String(form.get("course")),
+      courseRef: String(form.get("course")),
       title: String(form.get("title")),
       dateLabel,
       timeLabel,
@@ -502,7 +431,7 @@ function QuickAddSheet({ onClose, onAdd }: { onClose: () => void; onAdd: (item: 
             </div>
           </fieldset>
           <label>Title<input name="title" required placeholder="e.g. Materials problem set" /></label>
-          <label>Course<select name="course" defaultValue="MECH 101">{courses.map((course) => <option key={course.code} value={course.code}>{course.code} · {course.shortName}</option>)}</select></label>
+          <label>Course<select name="course" defaultValue={courses[0]?.ref}>{courses.map((course) => <option key={course.id} value={course.ref}>{course.code} · {course.shortName}</option>)}</select></label>
           <div className="form-pair">
             <label>Date<input name="date" type="date" required defaultValue="2026-09-25" /></label>
             <label>Time<input name="time" type="time" defaultValue="17:00" /></label>
@@ -520,6 +449,9 @@ export default function HomePage() {
   const [identity, setIdentity] = useState<StudentIdentity | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("today");
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [courseLoadError, setCourseLoadError] = useState("");
+  const [courseEditor, setCourseEditor] = useState<Course | null | undefined>(undefined);
   const [selectedItem, setSelectedItem] = useState<PlannerItem | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -528,7 +460,7 @@ export default function HomePage() {
   const [savedMaterials, setSavedMaterials] = useState<string[]>(["lab-manual", "physics-formulas"]);
   const [materialQuery, setMaterialQuery] = useState("");
   const [materialFilter, setMaterialFilter] = useState<"all" | "saved">("all");
-  const [expandedCourse, setExpandedCourse] = useState<string | null>("MECH 101");
+  const [expandedCourse, setExpandedCourse] = useState<string | null>(null);
   const [toast, setToast] = useState("");
   const [hydrated, setHydrated] = useState(false);
 
@@ -558,12 +490,40 @@ export default function HomePage() {
         return;
       }
 
-      setIdentity({
+      const loadedIdentity = {
         id: userData.user.id,
         email: profile.email,
         username: profile.username,
         displayName: profile.display_name,
-      });
+      };
+
+      const courseColumns = "id, template_key, code, name, short_name, description, instructor, tone, icon_key, progress, schedule, room, next_milestone, sort_order";
+      let { data: courseRows, error: courseError } = await supabase
+        .from("student_courses")
+        .select(courseColumns)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true });
+
+      if (!courseError && courseRows?.length === 0) {
+        const seedRows = defaultCourseSeeds.map((seed) => ({
+          ...courseDraftToRow(seed),
+          user_id: userData.user.id,
+          template_key: seed.templateKey,
+          sort_order: seed.sortOrder,
+        }));
+        const seeded = await supabase.from("student_courses").insert(seedRows).select(courseColumns);
+        courseRows = seeded.data;
+        courseError = seeded.error;
+      }
+
+      if (courseError) {
+        setCourseLoadError("We could not load your courses. Refresh and try again.");
+      } else {
+        const loadedCourses = ((courseRows ?? []) as StudentCourseRow[]).map(courseFromRow);
+        setCourses(loadedCourses);
+        setExpandedCourse(loadedCourses[0]?.ref ?? null);
+      }
+      setIdentity(loadedIdentity);
       setAuthLoading(false);
     }
 
@@ -575,18 +535,24 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!identity) return;
-    let parsed: { completedIds?: string[]; customItems?: PlannerItem[]; savedMaterials?: string[] } = {};
+    type StoredPlannerItem = Partial<PlannerItem> & Omit<PlannerItem, "courseRef"> & { courseCode?: string };
+    let parsed: { completedIds?: string[]; customItems?: StoredPlannerItem[]; savedMaterials?: string[] } = {};
     try {
       const stored = window.localStorage.getItem(`mechmate-state-v1:${identity.id}`);
       if (stored) {
-        parsed = JSON.parse(stored) as { completedIds?: string[]; customItems?: PlannerItem[]; savedMaterials?: string[] };
+        parsed = JSON.parse(stored) as { completedIds?: string[]; customItems?: StoredPlannerItem[]; savedMaterials?: string[] };
       }
     } catch {
       // The sample state remains available if local browser data is malformed.
     }
     const timer = window.setTimeout(() => {
       if (Array.isArray(parsed.completedIds)) setCompletedIds(parsed.completedIds);
-      if (Array.isArray(parsed.customItems)) setCustomItems(parsed.customItems);
+      if (Array.isArray(parsed.customItems)) {
+        setCustomItems(parsed.customItems.map((item) => {
+          const legacyRef = defaultCourseSeeds.find((course) => course.code === item.courseCode)?.templateKey;
+          return { ...item, courseRef: item.courseRef ?? legacyRef ?? "" } as PlannerItem;
+        }).filter((item) => item.courseRef));
+      }
       if (Array.isArray(parsed.savedMaterials)) setSavedMaterials(parsed.savedMaterials);
       setHydrated(true);
     }, 0);
@@ -604,15 +570,23 @@ export default function HomePage() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const allItems = useMemo(() => [...customItems, ...baseItems], [customItems]);
+  const allItems = useMemo(() => {
+    const courseRefs = new Set(courses.map((course) => course.ref));
+    return [...customItems, ...baseItems].filter((item) => courseRefs.has(item.courseRef));
+  }, [courses, customItems]);
+  const visibleMaterials = useMemo(() => {
+    const courseRefs = new Set(courses.map((course) => course.ref));
+    return materials.filter((material) => courseRefs.has(material.courseRef));
+  }, [courses]);
   const filteredMaterials = useMemo(() => {
     const query = materialQuery.trim().toLowerCase();
-    return materials.filter((material) => {
-      const matchesQuery = !query || `${material.title} ${material.courseCode} ${material.meta}`.toLowerCase().includes(query);
+    return visibleMaterials.filter((material) => {
+      const course = courseFor(courses, material.courseRef);
+      const matchesQuery = !query || `${material.title} ${course?.code ?? ""} ${course?.name ?? ""} ${material.meta}`.toLowerCase().includes(query);
       const matchesFilter = materialFilter === "all" || savedMaterials.includes(material.id);
       return matchesQuery && matchesFilter;
     });
-  }, [materialQuery, materialFilter, savedMaterials]);
+  }, [courses, materialQuery, materialFilter, savedMaterials, visibleMaterials]);
 
   function toggleComplete(id: string) {
     setCompletedIds((current) => current.includes(id) ? current.filter((itemId) => itemId !== id) : [...current, id]);
@@ -631,11 +605,63 @@ export default function HomePage() {
     setToast(savedMaterials.includes(id) ? "Removed from saved materials" : "Saved on this device");
   }
 
+  async function saveCourse(draft: CourseDraft) {
+    if (!identity) return "Your session has expired. Please sign in again.";
+    const code = draft.code.trim().toUpperCase().replace(/\s+/g, " ");
+    if (courses.some((course) => course.code === code && course.id !== courseEditor?.id)) {
+      return `${code} already exists in your courses.`;
+    }
+
+    const supabase = createClient();
+    const courseColumns = "id, template_key, code, name, short_name, description, instructor, tone, icon_key, progress, schedule, room, next_milestone, sort_order";
+    if (courseEditor) {
+      const { data, error } = await supabase
+        .from("student_courses")
+        .update(courseDraftToRow(draft))
+        .eq("id", courseEditor.id)
+        .select(courseColumns)
+        .single();
+      if (error || !data) return error?.message ?? "Course changes could not be saved.";
+      const updated = courseFromRow(data as StudentCourseRow);
+      setCourses((current) => current.map((course) => course.id === updated.id ? updated : course));
+      setExpandedCourse(updated.ref);
+      setToast(`${updated.code} updated`);
+    } else {
+      const { data, error } = await supabase
+        .from("student_courses")
+        .insert({ ...courseDraftToRow(draft), user_id: identity.id, sort_order: courses.length })
+        .select(courseColumns)
+        .single();
+      if (error || !data) return error?.message ?? "The course could not be added.";
+      const added = courseFromRow(data as StudentCourseRow);
+      setCourses((current) => [...current, added]);
+      setExpandedCourse(added.ref);
+      setToast(`${added.code} added`);
+    }
+    setCourseEditor(undefined);
+    return null;
+  }
+
+  async function deleteCourse(course: Course) {
+    if (courses.length === 1) return "Add another course before removing your only course.";
+    const supabase = createClient();
+    const { error } = await supabase.from("student_courses").delete().eq("id", course.id);
+    if (error) return error.message;
+    setCourses((current) => current.filter((entry) => entry.id !== course.id));
+    setCustomItems((current) => current.filter((item) => item.courseRef !== course.ref));
+    setSelectedItem((current) => current?.courseRef === course.ref ? null : current);
+    setExpandedCourse((current) => current === course.ref ? null : current);
+    setCourseEditor(undefined);
+    setToast(`${course.code} removed`);
+    return null;
+  }
+
   async function signOut() {
     setProfileOpen(false);
     const supabase = createClient();
     await supabase.auth.signOut();
     setIdentity(null);
+    setCourses([]);
     setHydrated(false);
   }
 
@@ -659,6 +685,9 @@ export default function HomePage() {
     .map((part) => part[0])
     .join("")
     .toUpperCase();
+  const urgentItem = allItems.find((item) => item.id === "cad-assembly") ?? allItems[0];
+  const labItem = allItems.find((item) => item.kind === "lab");
+  const examItem = allItems.find((item) => item.kind === "exam");
 
   return (
     <div className="app-shell">
@@ -677,8 +706,8 @@ export default function HomePage() {
           {notificationsOpen && (
             <div className="notification-popover">
               <div><strong>Updates</strong><button type="button" onClick={() => setNotificationsOpen(false)} aria-label="Close notifications"><X size={17} /></button></div>
-              <button type="button" onClick={() => { setSelectedItem(baseItems[3]); setNotificationsOpen(false); }}><span className="notice-icon safety"><ShieldAlert size={17} /></span><span><strong>Lab preparation</strong><small>Safety glasses are required today.</small></span></button>
-              <button type="button" onClick={() => { setSelectedItem(baseItems[0]); setNotificationsOpen(false); }}><span className="notice-icon"><Clock3 size={17} /></span><span><strong>Due tomorrow</strong><small>Gearbox drawing · 60% complete</small></span></button>
+              {labItem && <button type="button" onClick={() => { setSelectedItem(labItem); setNotificationsOpen(false); }}><span className="notice-icon safety"><ShieldAlert size={17} /></span><span><strong>Lab preparation</strong><small>{labItem.note}</small></span></button>}
+              {urgentItem && <button type="button" onClick={() => { setSelectedItem(urgentItem); setNotificationsOpen(false); }}><span className="notice-icon"><Clock3 size={17} /></span><span><strong>{urgentItem.relative}</strong><small>{urgentItem.title}</small></span></button>}
             </div>
           )}
           {profileOpen && (
@@ -698,7 +727,7 @@ export default function HomePage() {
             const Icon = nav.icon;
             return <button key={nav.id} type="button" className={activeTab === nav.id ? "active" : ""} onClick={() => setActiveTab(nav.id)} aria-current={activeTab === nav.id ? "page" : undefined}><Icon size={21} /><span>{nav.label}</span></button>;
           })}
-          <button className="add-button" type="button" onClick={() => setAddOpen(true)} aria-label="Quick add course work"><Plus size={24} /><span>Add</span></button>
+          <button className="add-button" type="button" onClick={() => courses.length ? setAddOpen(true) : setCourseEditor(null)} aria-label={courses.length ? "Quick add course work" : "Add your first course"}><Plus size={24} /><span>Add</span></button>
           {navItems.slice(2).map((nav) => {
             const Icon = nav.icon;
             return <button key={nav.id} type="button" className={activeTab === nav.id ? "active" : ""} onClick={() => setActiveTab(nav.id)} aria-current={activeTab === nav.id ? "page" : undefined}><Icon size={21} /><span>{nav.label}</span></button>;
@@ -717,24 +746,24 @@ export default function HomePage() {
                 <button className="week-button" type="button" onClick={() => setActiveTab("calendar")}><span>Week</span><strong>04</strong><ChevronRight size={18} /></button>
               </section>
 
-              <section className="urgent-card" aria-labelledby="due-next-heading">
+              {urgentItem ? <section className="urgent-card" aria-labelledby="due-next-heading">
                 <div className="urgent-topline"><span><Clock3 size={15} /> Due next</span><span className="countdown">19h left</span></div>
                 <div className="urgent-content">
                   <div>
-                    <CourseBadge code="ENGR 105" />
-                    <h2 id="due-next-heading">Gearbox assembly drawing</h2>
-                    <p><CalendarDays size={16} /> Tomorrow · 11:59 PM</p>
+                    <CourseBadge courseRef={urgentItem.courseRef} courses={courses} />
+                    <h2 id="due-next-heading">{urgentItem.title}</h2>
+                    <p><CalendarDays size={16} /> {urgentItem.dateLabel} · {urgentItem.timeLabel}</p>
                   </div>
-                  <div className="hero-progress"><div><span>Progress</span><strong>3 of 5 steps</strong></div><ProgressBar value={60} label="Gearbox assignment progress" /></div>
-                  <button className="light-action" type="button" onClick={() => setSelectedItem(baseItems[0])}>Continue assignment <ChevronRight size={18} /></button>
+                  <div className="hero-progress"><div><span>Progress</span><strong>{urgentItem.progress ?? 0}% complete</strong></div><ProgressBar value={urgentItem.progress ?? 0} label={`${urgentItem.title} progress`} /></div>
+                  <button className="light-action" type="button" onClick={() => setSelectedItem(urgentItem)}>Open details <ChevronRight size={18} /></button>
                 </div>
                 <div className="gear-lines" aria-hidden="true"><span /><span /><span /></div>
-              </section>
+              </section> : <section className="empty-dashboard"><BookOpen size={28} /><h2>Your dashboard is ready</h2><p>Add a course, then add assignments, tests, exams, and labs.</p><button type="button" onClick={() => setCourseEditor(null)}><Plus size={17} /> Add your first course</button></section>}
 
               <section className="stat-row" aria-label="Week summary">
-                <button type="button" onClick={() => setActiveTab("calendar")}><span className="stat-icon amber"><ClipboardCheck size={18} /></span><span><strong>4</strong><small>Due this week</small></span></button>
-                <button type="button" onClick={() => setSelectedItem(baseItems[3])}><span className="stat-icon teal"><FlaskConical size={18} /></span><span><strong>2</strong><small>Labs to prep</small></span></button>
-                <button type="button" onClick={() => setSelectedItem(baseItems[4])}><span className="stat-icon purple"><GraduationCap size={18} /></span><span><strong>20d</strong><small>Until midterm</small></span></button>
+                <button type="button" onClick={() => setActiveTab("calendar")}><span className="stat-icon amber"><ClipboardCheck size={18} /></span><span><strong>{allItems.length}</strong><small>Active items</small></span></button>
+                <button type="button" onClick={() => labItem && setSelectedItem(labItem)}><span className="stat-icon teal"><FlaskConical size={18} /></span><span><strong>{allItems.filter((item) => item.kind === "lab").length}</strong><small>Labs to prep</small></span></button>
+                <button type="button" onClick={() => examItem && setSelectedItem(examItem)}><span className="stat-icon purple"><GraduationCap size={18} /></span><span><strong>{allItems.filter((item) => item.kind === "exam").length}</strong><small>Upcoming exams</small></span></button>
               </section>
 
               <div className="content-grid">
@@ -742,10 +771,8 @@ export default function HomePage() {
                   <section className="panel today-panel">
                     <div className="section-heading"><div><p className="eyebrow">Your day</p><h2>Today’s schedule</h2></div><button type="button" onClick={() => setActiveTab("calendar")}>Full plan <ChevronRight size={16} /></button></div>
                     <div className="timeline">
-                      <div className="timeline-row done"><time>9:00</time><span className="timeline-dot"><Check size={12} /></span><button type="button"><strong>Physics lecture</strong><small>PHYS 101 · Newton Hall 106</small></button></div>
-                      <div className="timeline-row current"><time>11:00</time><span className="timeline-dot" /><button type="button"><strong>Calculus tutorial</strong><small>MATH 101 · Science Hall 118</small></button><span className="now-tag">Now</span></div>
-                      <div className="timeline-row"><time>2:00</time><span className="timeline-dot" /><button type="button" onClick={() => setSelectedItem(baseItems[3])}><strong>Collisions & momentum lab</strong><small>PHYS 103L · Lab Wing B12</small></button><ChevronRight size={18} /></div>
-                      <div className="timeline-row"><time>5:00</time><span className="timeline-dot" /><button type="button" onClick={() => setSelectedItem(baseItems[0])}><strong>CAD focus block</strong><small>Personal study · 90 min</small></button><ChevronRight size={18} /></div>
+                      {courses.slice(0, 4).map((course, index) => <div className={`timeline-row ${index === 0 ? "current" : ""}`} key={course.id}><time>{course.schedule.match(/\d{1,2}:\d{2}/)?.[0] ?? "—"}</time><span className="timeline-dot" /><button type="button" onClick={() => { setActiveTab("courses"); setExpandedCourse(course.ref); }}><strong>{course.shortName}</strong><small>{course.code}{course.room ? ` · ${course.room}` : ""}</small></button>{index === 0 ? <span className="now-tag">Next</span> : <ChevronRight size={18} />}</div>)}
+                      {courses.length === 0 && <p className="empty-inline">Add a course to build today’s schedule.</p>}
                     </div>
                   </section>
 
@@ -758,7 +785,7 @@ export default function HomePage() {
                         return (
                           <button className={completed ? "task-card is-complete" : "task-card"} type="button" key={item.id} onClick={() => setSelectedItem(item)}>
                             <span className={`kind-icon ${item.kind}`}><Icon size={18} /></span>
-                            <span className="task-copy"><span><CourseBadge code={item.courseCode} /><em className={`urgency ${item.urgency}`}>{completed ? "Completed" : item.relative}</em></span><strong>{item.title}</strong><small>{item.dateLabel} · {item.timeLabel}</small>{item.note && <span className="micro-note"><AlertTriangle size={13} />{item.note}</span>}</span>
+                            <span className="task-copy"><span><CourseBadge courseRef={item.courseRef} courses={courses} /><em className={`urgency ${item.urgency}`}>{completed ? "Completed" : item.relative}</em></span><strong>{item.title}</strong><small>{item.dateLabel} · {item.timeLabel}</small>{item.note && <span className="micro-note"><AlertTriangle size={13} />{item.note}</span>}</span>
                             <ChevronRight size={19} />
                           </button>
                         );
@@ -768,16 +795,16 @@ export default function HomePage() {
                 </div>
 
                 <aside className="content-aside">
-                  <section className="safety-card">
+                  {labItem && <section className="safety-card">
                     <div className="safety-icon"><HardHat size={22} /></div>
-                    <div><span className="eyebrow">Pinned lab note</span><h2>Safety gear today</h2><p>Bring safety glasses and wear closed-toe shoes for the momentum lab.</p><button type="button" onClick={() => setSelectedItem(baseItems[3])}>Open lab details <ChevronRight size={16} /></button></div>
-                  </section>
+                    <div><span className="eyebrow">Pinned lab note</span><h2>{labItem.title}</h2><p>{labItem.note}</p><button type="button" onClick={() => setSelectedItem(labItem)}>Open lab details <ChevronRight size={16} /></button></div>
+                  </section>}
 
                   <section className="panel material-preview">
                     <div className="section-heading"><div><p className="eyebrow">Ready when needed</p><h2>Important materials</h2></div><button type="button" onClick={() => setActiveTab("materials")}>All files <ChevronRight size={16} /></button></div>
-                    {materials.slice(0, 3).map((material) => {
+                    {visibleMaterials.slice(0, 3).map((material) => {
                       const Icon = materialIcon[material.type];
-                      return <button type="button" className="mini-resource" key={material.id} onClick={() => { setActiveTab("materials"); setMaterialQuery(material.title); }}><span><Icon size={18} /></span><span><strong>{material.title}</strong><small>{material.courseCode} · {material.type}</small></span><ChevronRight size={17} /></button>;
+                      return <button type="button" className="mini-resource" key={material.id} onClick={() => { setActiveTab("materials"); setMaterialQuery(material.title); }}><span><Icon size={18} /></span><span><strong>{material.title}</strong><small>{courseFor(courses, material.courseRef)?.code} · {material.type}</small></span><ChevronRight size={17} /></button>;
                     })}
                   </section>
                 </aside>
@@ -787,15 +814,17 @@ export default function HomePage() {
 
           {activeTab === "courses" && (
             <div className="page-view">
-              <section className="page-intro compact"><div><p className="eyebrow">Fall semester · 6 courses</p><h1>Your courses</h1><p>Schedules, progress, and what comes next.</p></div></section>
+              <section className="page-intro compact"><div><p className="eyebrow">Fall semester · {courses.length} {courses.length === 1 ? "course" : "courses"}</p><h1>Your courses</h1><p>Add, edit, or remove courses and keep every detail current.</p></div><button className="outline-button add-course-button" type="button" onClick={() => setCourseEditor(null)}><Plus size={17} /> Add course</button></section>
+              {courseLoadError && <div className="course-load-error" role="alert"><AlertTriangle size={18} /><span><strong>Courses unavailable</strong>{courseLoadError}</span><button type="button" onClick={() => window.location.reload()}>Retry</button></div>}
               <div className="course-grid">
                 {courses.map((course) => {
-                  const Icon = course.icon;
-                  const isOpen = expandedCourse === course.code;
-                  const courseItems = allItems.filter((item) => item.courseCode === course.code);
+                  const Icon = courseIconMap[course.iconKey];
+                  const isOpen = expandedCourse === course.ref;
+                  const courseItems = allItems.filter((item) => item.courseRef === course.ref);
                   return (
-                    <article className={`course-card ${course.tone}`} key={course.code}>
-                      <button className="course-card-main" type="button" onClick={() => setExpandedCourse(isOpen ? null : course.code)} aria-expanded={isOpen}>
+                    <article className={`course-card ${course.tone}`} key={course.id}>
+                      <button className="course-edit-button" type="button" onClick={() => setCourseEditor(course)} aria-label={`Edit ${course.code}`}><Pencil size={16} /></button>
+                      <button className="course-card-main" type="button" onClick={() => setExpandedCourse(isOpen ? null : course.ref)} aria-expanded={isOpen}>
                         <span className="course-icon"><Icon size={21} /></span>
                         <span className="course-title"><small>{course.code}</small><strong>{course.shortName}</strong><span>{course.schedule}</span></span>
                         <span className="course-progress"><strong>{course.progress}%</strong><ChevronDown size={18} /></span>
@@ -803,14 +832,17 @@ export default function HomePage() {
                       <ProgressBar value={course.progress} label={`${course.shortName} semester progress`} />
                       {isOpen && (
                         <div className="course-expanded">
-                          <div className="course-meta"><span><MapPin size={15} />{course.room}</span><span><Clock3 size={15} />{course.schedule}</span></div>
-                          <div className="course-next"><small>Next up</small><strong>{course.next}</strong></div>
+                          <h3>{course.name}</h3>
+                          {course.description && <p className="course-description">{course.description}</p>}
+                          <div className="course-meta">{course.instructor && <span><GraduationCap size={15} />{course.instructor}</span>}{course.room && <span><MapPin size={15} />{course.room}</span>}{course.schedule && <span><Clock3 size={15} />{course.schedule}</span>}</div>
+                          {course.next && <div className="course-next"><small>Next up</small><strong>{course.next}</strong></div>}
                           {courseItems.length > 0 ? courseItems.slice(0, 2).map((item) => <button type="button" key={item.id} onClick={() => setSelectedItem(item)}><span>{kindMeta[item.kind].label}</span><strong>{item.title}</strong><ChevronRight size={17} /></button>) : <p className="empty-inline">Nothing due yet. Enjoy the breathing room.</p>}
                         </div>
                       )}
                     </article>
                   );
                 })}
+                {courses.length === 0 && !courseLoadError && <button className="empty-course-card" type="button" onClick={() => setCourseEditor(null)}><span><Plus size={22} /></span><strong>Add your first course</strong><small>Course code, name, schedule, room, instructor, progress, and more</small></button>}
               </div>
             </div>
           )}
@@ -822,18 +854,18 @@ export default function HomePage() {
                 {[{ d: "MON", n: "14" }, { d: "TUE", n: "15" }, { d: "WED", n: "16" }, { d: "THU", n: "17" }, { d: "FRI", n: "18" }, { d: "SAT", n: "19" }, { d: "SUN", n: "20" }].map((day) => <button type="button" className={day.n === "17" ? "selected" : ""} key={day.n}><small>{day.d}</small><strong>{day.n}</strong>{["17", "18", "20"].includes(day.n) && <span />}</button>)}
               </div>
               <section className="agenda-panel">
-                <div className="agenda-day"><div className="agenda-date"><strong>17</strong><span>THU<small>Today</small></span></div><div className="agenda-items"><button type="button"><time>11:00 AM</time><span className="agenda-line teal" /><span><strong>Calculus tutorial</strong><small>MATH 101 · Science Hall</small></span></button><button type="button" onClick={() => setSelectedItem(baseItems[3])}><time>2:00 PM</time><span className="agenda-line red" /><span><strong>Collisions & momentum lab</strong><small>PHYS 103L · Safety gear required</small></span></button></div></div>
-                <div className="agenda-day"><div className="agenda-date"><strong>18</strong><span>FRI<small>Tomorrow</small></span></div><div className="agenda-items"><button type="button" onClick={() => setSelectedItem(baseItems[0])}><time>11:59 PM</time><span className="agenda-line purple" /><span><strong>Gearbox assembly drawing</strong><small>ENGR 105 · Assignment due</small></span><em>Critical</em></button></div></div>
-                <div className="agenda-day"><div className="agenda-date"><strong>20</strong><span>SUN</span></div><div className="agenda-items"><button type="button" onClick={() => setSelectedItem(baseItems[2])}><time>6:00 PM</time><span className="agenda-line orange" /><span><strong>Problem set 4 · Derivatives</strong><small>MATH 101 · Assignment due</small></span></button></div></div>
-                <div className="agenda-day"><div className="agenda-date"><strong>21</strong><span>MON</span></div><div className="agenda-items"><button type="button" onClick={() => setSelectedItem(baseItems[1])}><time>9:00 AM</time><span className="agenda-line teal" /><span><strong>Dynamics quiz</strong><small>PHYS 101 · 25 minutes</small></span></button></div></div>
-                {customItems.map((item) => <div className="agenda-day" key={item.id}><div className="agenda-date"><strong>+</strong><span>NEW</span></div><div className="agenda-items"><button type="button" onClick={() => setSelectedItem(item)}><time>{item.timeLabel}</time><span className="agenda-line blue" /><span><strong>{item.title}</strong><small>{item.courseCode} · {item.dateLabel}</small></span></button></div></div>)}
+                {allItems.map((item, index) => {
+                  const course = courseFor(courses, item.courseRef);
+                  return <div className="agenda-day" key={item.id}><div className="agenda-date"><strong>{String(17 + index).padStart(2, "0")}</strong><span>{index === 0 ? "TODAY" : item.kind.toUpperCase()}</span></div><div className="agenda-items"><button type="button" onClick={() => setSelectedItem(item)}><time>{item.timeLabel}</time><span className={`agenda-line ${course?.tone ?? "blue"}`} /><span><strong>{item.title}</strong><small>{course?.code} · {item.dateLabel}</small></span>{item.urgency === "critical" && <em>Critical</em>}</button></div></div>;
+                })}
+                {allItems.length === 0 && <div className="empty-state"><CalendarDays size={28} /><h2>No course work planned</h2><p>Add a course and use the + button to create your first item.</p></div>}
               </section>
             </div>
           )}
 
           {activeTab === "materials" && (
             <div className="page-view">
-              <section className="page-intro compact"><div><p className="eyebrow">Course library</p><h1>Materials</h1><p>Find the file you need without digging through six portals.</p></div></section>
+              <section className="page-intro compact"><div><p className="eyebrow">Course library</p><h1>Materials</h1><p>Find what you need across all {courses.length || "your"} {courses.length === 1 ? "course" : "courses"}.</p></div></section>
               <label className="search-box"><Search size={19} /><span className="sr-only">Search materials</span><input value={materialQuery} onChange={(event) => setMaterialQuery(event.target.value)} placeholder="Search files, topics, or courses" />{materialQuery && <button type="button" onClick={() => setMaterialQuery("")} aria-label="Clear search"><X size={17} /></button>}</label>
               <div className="filter-row"><button type="button" className={materialFilter === "all" ? "active" : ""} onClick={() => setMaterialFilter("all")}>All materials</button><button type="button" className={materialFilter === "saved" ? "active" : ""} onClick={() => setMaterialFilter("saved")}><Download size={15} /> Saved on device</button></div>
               <section className="materials-panel">
@@ -841,8 +873,8 @@ export default function HomePage() {
                 {filteredMaterials.length > 0 ? <div className="resource-list">{filteredMaterials.map((material) => {
                   const Icon = materialIcon[material.type];
                   const saved = savedMaterials.includes(material.id);
-                  const course = courseFor(material.courseCode);
-                  return <article className="resource-card" key={material.id}><span className={`resource-icon ${course.tone}`}><Icon size={21} /></span><div><CourseBadge code={material.courseCode} /><h3>{material.title}</h3><p>{material.detail}</p><small>{material.meta}</small></div><button className={saved ? "save-control saved" : "save-control"} type="button" onClick={() => toggleSaved(material.id)} aria-label={saved ? `Remove ${material.title} from saved materials` : `Save ${material.title} on this device`}>{saved ? <CheckCircle2 size={19} /> : <Download size={19} />}<span>{saved ? "Saved" : "Save"}</span></button></article>;
+                  const course = courseFor(courses, material.courseRef);
+                  return <article className="resource-card" key={material.id}><span className={`resource-icon ${course?.tone ?? "blue"}`}><Icon size={21} /></span><div><CourseBadge courseRef={material.courseRef} courses={courses} /><h3>{material.title}</h3><p>{material.detail}</p><small>{material.meta}</small></div><button className={saved ? "save-control saved" : "save-control"} type="button" onClick={() => toggleSaved(material.id)} aria-label={saved ? `Remove ${material.title} from saved materials` : `Save ${material.title} on this device`}>{saved ? <CheckCircle2 size={19} /> : <Download size={19} />}<span>{saved ? "Saved" : "Save"}</span></button></article>;
                 })}</div> : <div className="empty-state"><FolderOpen size={28} /><h2>No materials found</h2><p>Try another term or show all materials.</p><button type="button" onClick={() => { setMaterialQuery(""); setMaterialFilter("all"); }}>Clear filters</button></div>}
               </section>
             </div>
@@ -850,8 +882,9 @@ export default function HomePage() {
         </main>
       </div>
 
-      {selectedItem && <DetailSheet item={selectedItem} completed={completedIds.includes(selectedItem.id)} onClose={() => setSelectedItem(null)} onToggleComplete={() => toggleComplete(selectedItem.id)} />}
-      {addOpen && <QuickAddSheet onClose={() => setAddOpen(false)} onAdd={addItem} />}
+      {selectedItem && <DetailSheet item={selectedItem} courses={courses} completed={completedIds.includes(selectedItem.id)} onClose={() => setSelectedItem(null)} onToggleComplete={() => toggleComplete(selectedItem.id)} />}
+      {addOpen && <QuickAddSheet courses={courses} onClose={() => setAddOpen(false)} onAdd={addItem} />}
+      {courseEditor !== undefined && <CourseEditorSheet course={courseEditor} onClose={() => setCourseEditor(undefined)} onSave={saveCourse} onDelete={courseEditor ? () => deleteCourse(courseEditor) : undefined} />}
       <div className={toast ? "toast show" : "toast"} role="status" aria-live="polite"><CheckCircle2 size={17} />{toast}</div>
     </div>
   );

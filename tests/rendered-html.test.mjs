@@ -28,12 +28,13 @@ test("server-renders the MechMate organizer", async () => {
 });
 
 test("ships secure account access without starter preview assets", async () => {
-  const [page, layout, packageJson, authScreen, migration] = await Promise.all([
+  const [page, layout, packageJson, authScreen, migration, emailLockMigration] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../components/auth-screen.tsx", import.meta.url), "utf8"),
     readFile(new URL("../supabase/migrations/20260813_create_immutable_student_profiles.sql", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260813_lock_student_account_email.sql", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /mechmate-state-v1/);
@@ -50,6 +51,7 @@ test("ships secure account access without starter preview assets", async () => {
   assert.match(migration, /enable row level security/i);
   assert.match(migration, /grant select on table public\.student_profiles to authenticated/i);
   assert.doesNotMatch(migration, /grant (insert|update|delete)/i);
+  assert.match(emailLockMigration, /before update of email, email_change on auth\.users/i);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
   await assert.rejects(access(new URL("../app/_sites-preview/preview.css", import.meta.url)));

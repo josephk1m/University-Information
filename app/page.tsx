@@ -25,18 +25,29 @@ import {
   Plus,
   Search,
   ShieldAlert,
+  ShieldCheck,
   SlidersHorizontal,
   Target,
+  LogOut,
   Wrench,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AuthScreen } from "@/components/auth-screen";
+import { createClient } from "@/lib/supabase/client";
 
 type Tab = "today" | "courses" | "calendar" | "materials";
 type ItemKind = "assignment" | "test" | "exam" | "lab";
 type Urgency = "critical" | "urgent" | "soon" | "upcoming";
+
+type StudentIdentity = {
+  id: string;
+  email: string;
+  username: string;
+  displayName: string;
+};
 
 type Course = {
   code: string;
@@ -505,6 +516,9 @@ function QuickAddSheet({ onClose, onAdd }: { onClose: () => void; onAdd: (item: 
 }
 
 export default function HomePage() {
+  const [authLoading, setAuthLoading] = useState(true);
+  const [identity, setIdentity] = useState<StudentIdentity | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("today");
   const [selectedItem, setSelectedItem] = useState<PlannerItem | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -519,9 +533,51 @@ export default function HomePage() {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
+    let active = true;
+
+    async function loadIdentity() {
+      const supabase = createClient();
+      const { data: userData } = await supabase.auth.getUser();
+
+      if (!active) return;
+      if (!userData.user) {
+        setAuthLoading(false);
+        return;
+      }
+
+      const { data: profile, error } = await supabase
+        .from("student_profiles")
+        .select("email, username, display_name")
+        .eq("id", userData.user.id)
+        .single();
+
+      if (!active) return;
+      if (error || !profile) {
+        await supabase.auth.signOut();
+        if (active) setAuthLoading(false);
+        return;
+      }
+
+      setIdentity({
+        id: userData.user.id,
+        email: profile.email,
+        username: profile.username,
+        displayName: profile.display_name,
+      });
+      setAuthLoading(false);
+    }
+
+    void loadIdentity();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!identity) return;
     let parsed: { completedIds?: string[]; customItems?: PlannerItem[]; savedMaterials?: string[] } = {};
     try {
-      const stored = window.localStorage.getItem("mechmate-state-v1");
+      const stored = window.localStorage.getItem(`mechmate-state-v1:${identity.id}`);
       if (stored) {
         parsed = JSON.parse(stored) as { completedIds?: string[]; customItems?: PlannerItem[]; savedMaterials?: string[] };
       }
@@ -535,12 +591,12 @@ export default function HomePage() {
       setHydrated(true);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [identity]);
 
   useEffect(() => {
-    if (!hydrated) return;
-    window.localStorage.setItem("mechmate-state-v1", JSON.stringify({ completedIds, customItems, savedMaterials }));
-  }, [completedIds, customItems, savedMaterials, hydrated]);
+    if (!hydrated || !identity) return;
+    window.localStorage.setItem(`mechmate-state-v1:${identity.id}`, JSON.stringify({ completedIds, customItems, savedMaterials }));
+  }, [completedIds, customItems, savedMaterials, hydrated, identity]);
 
   useEffect(() => {
     if (!toast) return;
@@ -575,6 +631,35 @@ export default function HomePage() {
     setToast(savedMaterials.includes(id) ? "Removed from saved materials" : "Saved on this device");
   }
 
+  async function signOut() {
+    setProfileOpen(false);
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    setIdentity(null);
+    setHydrated(false);
+  }
+
+  if (authLoading) {
+    return (
+      <main className="auth-loading" aria-live="polite">
+        <span className="brand-mark"><Wrench size={20} /></span>
+        <strong>MECH<span>MATE</span></strong>
+        <p>Checking your session…</p>
+      </main>
+    );
+  }
+
+  if (!identity) return <AuthScreen />;
+
+  const firstName = identity.displayName.split(/\s+/)[0] || identity.displayName;
+  const initials = identity.displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">Skip to main content</a>
@@ -588,12 +673,20 @@ export default function HomePage() {
           <button className="icon-button notification-button" type="button" aria-label="Open notifications" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}>
             <Bell size={20} /><span className="notification-dot">2</span>
           </button>
-          <button className="avatar" type="button" aria-label="Open profile">JL</button>
+          <button className="avatar" type="button" aria-label="Open profile" aria-expanded={profileOpen} onClick={() => { setProfileOpen((open) => !open); setNotificationsOpen(false); }}>{initials}</button>
           {notificationsOpen && (
             <div className="notification-popover">
               <div><strong>Updates</strong><button type="button" onClick={() => setNotificationsOpen(false)} aria-label="Close notifications"><X size={17} /></button></div>
               <button type="button" onClick={() => { setSelectedItem(baseItems[3]); setNotificationsOpen(false); }}><span className="notice-icon safety"><ShieldAlert size={17} /></span><span><strong>Lab preparation</strong><small>Safety glasses are required today.</small></span></button>
               <button type="button" onClick={() => { setSelectedItem(baseItems[0]); setNotificationsOpen(false); }}><span className="notice-icon"><Clock3 size={17} /></span><span><strong>Due tomorrow</strong><small>Gearbox drawing · 60% complete</small></span></button>
+            </div>
+          )}
+          {profileOpen && (
+            <div className="profile-popover">
+              <div className="profile-summary"><span className="avatar large">{initials}</span><span><strong>{identity.displayName}</strong><small>@{identity.username}</small></span></div>
+              <div className="profile-email"><span>Email account</span><strong>{identity.email}</strong></div>
+              <div className="identity-locked"><ShieldCheck size={17} /><span><strong>Identity locked</strong><small>Name, username, and email cannot be edited.</small></span></div>
+              <button className="signout-button" type="button" onClick={() => void signOut()}><LogOut size={17} /> Sign out</button>
             </div>
           )}
         </div>
@@ -618,7 +711,7 @@ export default function HomePage() {
               <section className="page-intro">
                 <div>
                   <p className="eyebrow">1st year · Fall semester</p>
-                  <h1>Good morning, Joseph.</h1>
+                  <h1>Good morning, {firstName}.</h1>
                   <p>Thursday, September 17 <span>·</span> You’re on track.</p>
                 </div>
                 <button className="week-button" type="button" onClick={() => setActiveTab("calendar")}><span>Week</span><strong>04</strong><ChevronRight size={18} /></button>

@@ -23,7 +23,7 @@ test("server-renders the MechMate organizer", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>MechMate/);
-  assert.match(html, /Good morning, Jamie/);
+  assert.match(html, /Good morning, Joseph/);
   assert.match(html, /Gearbox assembly drawing/);
   assert.match(html, /Important materials/);
   assert.match(html, /Quick add course work/);

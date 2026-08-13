@@ -618,7 +618,7 @@ export default function HomePage() {
               <section className="page-intro">
                 <div>
                   <p className="eyebrow">1st year · Fall semester</p>
-                  <h1>Good morning, Jamie.</h1>
+                  <h1>Good morning, Joseph.</h1>
                   <p>Thursday, September 17 <span>·</span> You’re on track.</p>
                 </div>
                 <button className="week-button" type="button" onClick={() => setActiveTab("calendar")}><span>Week</span><strong>04</strong><ChevronRight size={18} /></button>
